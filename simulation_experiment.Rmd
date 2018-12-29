@@ -1,0 +1,558 @@
+---
+title: "797 project formulation"
+author: "Tobias Kuhlmann, Rui Zhang"
+date: "12/11/2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(logspline)
+library(KernSmooth)
+library(plyr)
+```
+
+## Data
+
+For our project we simulate univariate data $$[x_i, y_i] \quad i \epsilon\{1,...,n\},$$ where $y_i \sim iid$ and an unknown and known (different cases) smooth density f(x). This may not be just one dataset, but several. 
+
+
+## Models
+
+##### Univariate kernel density estimator
+We use a univariate kernel density function following Wand and Jones (1995). A density function can be estimated by
+$$\hat f(x;h)=(nh)^{-1}\sum_{i=1}^{n}K\{(x-X_{i})/h\},$$
+where K is a kernel function satisfying $\int K(x) dx=1$ and h is the bandwidth.
+
+####### R resources
+- Wand and Jones (1995)
+- https://stat.ethz.ch/R-manual/R-devel/library/stats/html/density.html
+
+
+##### Univariate density estimation with logspline
+Let $B$ be a collection of feasible column vectors following Stone, Hansen, Kooperberg, and Truong (1997). If $\beta \epsilon B$, then 
+$$f(x;\beta)=exp(\beta_1B_1(x)+\cdots+\beta_JB_J(x)-C(\beta)), L<x<U$$
+where $$C(\beta)=log(\int_{L}^{U} exp(\beta_1B_1(x)+\cdots+\beta_JB_J(x))dy).$$ Then $f(x;\beta)$ is a positive density function on (L,U).
+
+####### R resources
+- https://www.rdocumentation.org/packages/logspline/versions/2.1.11
+- https://www.rdocumentation.org/packages/logspline/versions/2.1.11/topics/logspline
+- https://www.rdocumentation.org/packages/logspline/versions/2.1.11/topics/dlogspline
+- Stone, Hansen, Kooperberg, and Truong (1997)
+
+## Goal
+
+After estimating both models on several sets of simulated data with different sample sizes, our goal is to study and compare the rates of convergence of the MISE as $n -> \infty$.
+
+
+# Simulation experiment
+
+## Simulation
+
+## Stats: Univariate Kernel density estimator test
+```{r kde}
+y <- rnorm(5000, 0, 1)
+
+# Univariate kernel density estimator
+# use bandwidth estimation as recommended in Venables and Ripley (2002)
+fit <- density(y, bw = 'sj')
+
+keep.fits <- fit$y
+mise <- mean((fit$y-dnorm(fit$x, 0, 1))^2)
+mise
+keep.log.mise	<- log10(mise)	
+
+# histogram overlay
+hist(y, freq = FALSE)
+lines(fit)
+
+# plot fit over x
+plot(x=fit$x, y=fit$y)
+
+```
+
+
+## KernSmooth (Wand): Univariate Kernel density estimator test
+```{r kde wand}
+# Univariate kernel density estimator following Wand (1995)
+y <- rnorm(1000, 0, 1)
+
+# select optimal bandwidth
+h <- dpik(y)
+# kde following Wand (1995)
+fit <- bkde(x=y, bandwidth=h)
+
+keep.fits <- fit$y
+mise <- mean((fit$y-dnorm(fit$x, 0, 1))^2)
+mise
+keep.log.mise	<- log10(mise)	
+
+# histogram overlay
+hist(y, freq = FALSE)
+lines(fit)
+
+# plot fit over x
+plot(x=fit$x, y=fit$y)
+
+```
+
+
+## Logspline density estimator test
+```{r log}
+y <- rweibull(n=1000, shape=1.5, scale=0.5)
+
+# logspline density estimator
+fit <- logspline(y)
+# summary(fit)
+# density object
+x = seq(from=0, to=10, length.out=1000)
+dens <- dlogspline(q=x, fit=fit) 
+#summary(dens)
+
+# MISE: mean(dlogspline quantiles - true_quantiles)^2 
+keep.fits <- dens
+mise <- mean((dens-dlnorm(x, 0, 1))^2)
+mise
+keep.log.mise	<- log10(mise)	
+
+# histogram overlay
+hist(y, freq = FALSE)
+# plot density of logsplinefit
+#plot(fit, n = 101, what = "d")
+# density overlay
+lines(x, dens, type = "l")
+
+# plot dlogspline fit over x
+plot(x, dens, type = "l")
+
+```
+
+
+## Monte Carlo experiment
+
+## Normal distribution
+```{r mc}
+reps.per.n <- 10
+log10.ns <- seq(from=2,to=5,length=20) # equally space n's on log scale
+ns <- round(10^log10.ns)
+log10.ns <- log10(ns)
+
+# make storage for what we want to keep
+keep.kernel.wand <- data.frame(log.n = rep(log10.ns,each=reps.per.n),log.mise=NA)
+keep.kernel <- data.frame(log.n = rep(log10.ns,each=reps.per.n),log.mise=NA)
+keep.logspline <- data.frame(log.n = rep(log10.ns,each=reps.per.n),log.mise=NA)
+
+# let's keep the fits too (it's always useful to look at estimates)
+keep.kernel.wand.fits <- matrix(NA,length(keep.kernel$log.n),401)
+keep.kernel.fits <- matrix(NA,length(keep.kernel$log.n),401)
+keep.logspline.fits <- matrix(NA,length(keep.logspline$log.n),401)
+
+
+counter <- 1
+for (n.i in ns)
+{
+	for (mc.i in 1:reps.per.n)
+	{
+		# generate data
+	  # TODO1: add some noise to distributions?
+		y <- rnorm(n.i, 0, 1)
+		
+    # Univariate kernel density estimator from KernSmooth package (Wand (1995))
+		# select optimal bandwidth
+    h <- dpik(y)
+    # kde following Wand (1995)
+    fit <- bkde(x=y, bandwidth=h, gridsize = 401)
+		# keep fits
+		keep.kernel.wand.fits[counter,] <- fit$y
+		# calc mse
+		mise <- mean((fit$y-dnorm(fit$x, 0, 1))^2)
+		# log mise
+		keep.kernel.wand$log.mise[counter]	<- log10(mise)	
+		
+		# store kde x values for log spline evaluation
+		x = fit$x
+		
+		
+		# Univariate kernel density estimator from stats package
+		# use smoothing parameter (standard deviation of kernel) 'sj', as recommended in Venables and Ripley (2002)
+		fit <- density(y, bw = 'sj', n=401)
+		# keep fits
+		keep.kernel.fits[counter,] <- fit$y
+		# calc mse
+		mise <- mean((fit$y-dnorm(fit$x, 0, 1))^2)
+		# log mise
+		keep.kernel$log.mise[counter]	<- log10(mise)	
+
+		
+		# Logspline density estimator
+		fit <- logspline(y)
+    # density values on 401 equally spaced points
+    dens <- dlogspline(q=x, fit=fit) 
+		# keep fits
+		keep.logspline.fits[counter,] <- dens
+		# calc mise
+		mise <- mean((dens-dnorm(x, 0, 1))^2)
+		# log mise
+		keep.logspline$log.mise[counter]	<- log10(mise)	
+		
+		# runtime
+		counter <- counter + 1
+		if (counter %% 20 == 0){
+		  print(paste0("Iteration: ", counter))
+		  }
+	}
+}
+```
+##### Visualization
+```{r visualization}
+# plot results
+par(mfrow=c(1,3))
+# kde Wand (1995) plot
+plot(keep.kernel.wand$log.n,keep.kernel.wand$log.mise,xlab="Log10 n",ylab="Log10 MISE",type="n", ylim=c(-7,-2))
+points(keep.kernel.wand$log.n,keep.kernel.wand$log.mise,pch=16,cex=.75)
+lmfit_kernel.wand <- lm(log.mise~log.n,data=keep.kernel.wand)
+abline(lmfit_kernel.wand,col="red")
+title("KernSmooth MISE")
+# kde plot
+plot(keep.kernel$log.n,keep.kernel$log.mise,xlab="Log10 n",ylab="Log10 MISE",type="n", ylim=c(-7,-2))
+points(keep.kernel$log.n,keep.kernel$log.mise,pch=16,cex=.75)
+lmfit_kernel <- lm(log.mise~log.n,data=keep.kernel)
+abline(lmfit_kernel,col="red")
+title("Stats KDE MISE")
+# logspline plot
+plot(keep.logspline$log.n,keep.logspline$log.mise,xlab="Log10 n",ylab="Log10 MISE",type="n", ylim=c(-7,-2))
+points(keep.logspline$log.n,keep.logspline$log.mise,pch=16,cex=.75)
+lmfit_logspline <- lm(log.mise~log.n,data=keep.logspline)
+abline(lmfit_logspline,col="red")
+title("Logspline DE MISE")
+
+# look at kernel coefficient of interest
+print(summary(lmfit_kernel.wand)$coefficients)
+print(confint(lmfit_kernel.wand))
+# look at kernel coefficient of interest
+print(summary(lmfit_kernel)$coefficients)
+print(confint(lmfit_kernel))
+# look at coefficient of interest
+print(summary(lmfit_logspline)$coefficients)
+print(confint(lmfit_logspline))
+```
+
+```{r visualization combined normal}
+# plot results
+par(mfrow=c(1,1)) 
+# kernel
+plot(keep.kernel$log.n,keep.kernel$log.mise,xlab="Log10 n",ylab="Log10 MISE",type="n")
+points(keep.kernel$log.n,keep.kernel$log.mise,pch=16,cex=.75, col='blue')
+lmfit <- lm(log.mise~log.n,data=keep.kernel)
+abline(lmfit,col="red")
+# logspline
+points(keep.logspline$log.n,keep.logspline$log.mise,pch=16,cex=.75, col='green')
+lmfit <- lm(log.mise~log.n,data=keep.logspline)
+abline(lmfit,col="red")
+title("Density estimation asymptotic MISE")
+# legend
+
+# mean plots
+kernel_mean_mise = aggregate(keep.kernel, by=list(keep.kernel$log.n), mean)
+logspline_mean_mise = aggregate(keep.logspline, by=list(keep.logspline$log.n), mean)
+
+plot(kernel_mean_mise$log.n,kernel_mean_mise$log.mise,xlab="Log10 n",ylab="Log10 MISE",type="n")
+points(kernel_mean_mise$log.n,kernel_mean_mise$log.mise,pch=16,cex=.75, col='blue')
+points(logspline_mean_mise$log.n,logspline_mean_mise$log.mise,pch=16,cex=.75, col='green')
+title("Density estimation asymptotic MISE")
+```
+
+
+##Weibull distribution
+```{r mc}
+reps.per.n <- 10
+log10.ns <- seq(from=2,to=5,length=20) # equally space n's on log scale
+ns <- round(10^log10.ns)
+log10.ns <- log10(ns)
+
+# make storage for what we want to keep
+keep.kernel.wand <- data.frame(log.n = rep(log10.ns,each=reps.per.n),log.mise=NA)
+keep.logspline <- data.frame(log.n = rep(log10.ns,each=reps.per.n),log.mise=NA)
+
+# let's keep the fits too (it's always useful to look at estimates)
+keep.kernel.wand.fits <- matrix(NA,length(keep.kernel.wand$log.n),401)
+keep.logspline.fits <- matrix(NA,length(keep.logspline$log.n),401)
+
+counter <- 1
+for (n.i in ns)
+{
+	for (mc.i in 1:reps.per.n)
+	{
+		# generate data
+	  # TODO1: add some noise to distributions?
+		y <- rweibull(n=n.i, shape=1.5, scale=0.5)
+		
+    # Univariate kernel density estimator from KernSmooth package (Wand (1995))
+		# select optimal bandwidth
+    h <- dpik(y)
+    # kde following Wand (1995)
+    fit <- bkde(x=y, bandwidth=h, gridsize = 401L)
+		# keep fits
+		keep.kernel.wand.fits[counter,] <- fit$y
+		# calc mse
+		mise <- mean((fit$y-rweibull(fit$x, shape=1.5, scale=0.5))^2)
+		# log mise
+		keep.kernel.wand$log.mise[counter]	<- log10(mise)	
+		
+		# store kde x values for log spline evaluation
+		x = fit$x
+
+		# Logspline density estimator
+		fit <- logspline(y)
+    # density values on 401 equally spaced points
+    dens <- dlogspline(q=x, fit=fit) 
+		# keep fits
+		keep.logspline.fits[counter,] <- dens
+		# calc mise
+		mise <- mean((dens-rweibull(x, shape=1.5, scale=0.5))^2)
+		# log mise
+		keep.logspline$log.mise[counter]	<- log10(mise)	
+		
+		# runtime
+		counter <- counter + 1
+		if (counter %% 20 == 0){
+		  print(paste0("Iteration: ", counter))
+		  }
+	}
+}
+```
+
+##### Visualization
+```{r visualization}
+# plot results
+par(mfrow=c(1,2))
+# kde Wand (1995) plot
+plot(keep.kernel.wand$log.n,keep.kernel.wand$log.mise,xlab="Log10 n",ylab="Log10 MISE",type="n", ylim=c(-7,0))
+points(keep.kernel.wand$log.n,keep.kernel.wand$log.mise,pch=16,cex=.75)
+lmfit_kernel.wand <- lm(log.mise~log.n,data=keep.kernel.wand)
+abline(lmfit_kernel.wand,col="red")
+title("KernSmooth MISE")
+# logspline plot
+plot(keep.logspline$log.n,keep.logspline$log.mise,xlab="Log10 n",ylab="Log10 MISE",type="n", ylim=c(-7,0))
+points(keep.logspline$log.n,keep.logspline$log.mise,pch=16,cex=.75)
+lmfit_logspline <- lm(log.mise~log.n,data=keep.logspline)
+abline(lmfit_logspline,col="red")
+title("Logspline DE MISE")
+
+# look at kernel coefficient of interest
+print(summary(lmfit_kernel.wand)$coefficients)
+print(confint(lmfit_kernel.wand))
+# look at coefficient of interest
+print(summary(lmfit_logspline)$coefficients)
+print(confint(lmfit_logspline))
+```
+
+```{r visualization combined normal}
+# plot results
+par(mfrow=c(1,1)) 
+# kernel
+plot(keep.kernel.wand$log.n,keep.kernel.wand$log.mise,xlab="Log10 n",ylab="Log10 MISE",type="n")
+points(keep.kernel.wand$log.n,keep.kernel.wand$log.mise,pch=16,cex=.75, col='blue')
+lmfit <- lm(log.mise~log.n,data=keep.kernel.wand)
+abline(lmfit,col="red")
+# logspline
+points(keep.logspline$log.n,keep.logspline$log.mise,pch=16,cex=.75, col='green')
+lmfit <- lm(log.mise~log.n,data=keep.logspline)
+abline(lmfit,col="red")
+title("Density estimation asymptotic MISE")
+# legend
+
+# mean plots
+kernel_mean_mise = aggregate(keep.kernel.wand, by=list(keep.kernel.wand$log.n), mean)
+logspline_mean_mise = aggregate(keep.logspline, by=list(keep.logspline$log.n), mean)
+
+plot(kernel_mean_mise$log.n,kernel_mean_mise$log.mise,xlab="Log10 n",ylab="Log10 MISE",type="n")
+points(kernel_mean_mise$log.n,kernel_mean_mise$log.mise,pch=16,cex=.75, col='blue')
+points(logspline_mean_mise$log.n,logspline_mean_mise$log.mise,pch=16,cex=.75, col='green')
+title("Density estimation asymptotic MISE")
+```
+
+
+
+## Chi squared distribution
+```{r x2 vis}
+y <- rchisq(seq(from=0,to=25,length=1000), df=3)
+
+# Univariate kernel density estimator
+# use bandwidth estimation as recommended in Venables and Ripley (2002)
+fit <- density(y, bw = 'sj')
+
+# histogram overlay
+hist(y, freq = FALSE)
+lines(fit)
+
+x <- fit$x
+
+# logspline density estimator
+fit <- logspline(y)
+# summary(fit)
+# density object
+dens <- dlogspline(q=x, fit=fit) 
+#summary(dens)
+
+# histogram overlay
+hist(y, freq = FALSE)
+# plot density of logsplinefit
+#plot(fit, n = 101, what = "d")
+# density overlay
+lines(x, dens, type = "l")
+```
+
+
+```{r mc x2}
+reps.per.n <- 10
+log10.ns <- seq(from=2,to=5,length=20) # equally space n's on log scale
+ns <- round(10^log10.ns)
+log10.ns <- log10(ns)
+
+# make storage for what we want to keep
+keep.kernel.wand <- data.frame(log.n = rep(log10.ns,each=reps.per.n),log.mise=NA)
+keep.logspline <- data.frame(log.n = rep(log10.ns,each=reps.per.n),log.mise=NA)
+
+# let's keep the fits too (it's always useful to look at estimates)
+keep.kernel.wand.fits <- matrix(NA,length(keep.kernel.wand$log.n),401)
+keep.logspline.fits <- matrix(NA,length(keep.logspline$log.n),401)
+
+counter <- 1
+for (n.i in ns)
+{
+	for (mc.i in 1:reps.per.n)
+	{
+		# generate data
+	  # TODO1: add some noise to distributions!
+		y <- rchisq(n.i, df=3)
+		
+		# Univariate kernel density estimator from KernSmooth package (Wand (1995))
+		# select optimal bandwidth
+    h <- dpik(y)
+    # kde following Wand (1995)
+    fit <- bkde(x=y, bandwidth=h, kernel='normal', gridsize = 401L)
+		# keep fits
+		keep.kernel.wand.fits[counter,] <- fit$y
+		# calc mse
+		mise <- mean((fit$y-dnorm(fit$x, 0, 1))^2)
+		# log mise
+		keep.kernel.wand$log.mise[counter]	<- log10(mise)	
+		
+		# store kde x values for log spline evaluation
+		x = fit$x
+		
+		# Logspline density estimator
+		fit <- logspline(y)
+    # density values on 401 equally spaced points
+    dens <- dlogspline(q=x, fit=fit) 
+		# keep fits
+		keep.logspline.fits[counter,] <- dens
+		# calc mise
+		mise <- mean((dens-dchisq(x, df=3))^2)
+		# log mise
+		keep.logspline$log.mise[counter]	<- log10(mise)	
+		
+		# runtime
+		counter <- counter + 1
+		if (counter %% 20 == 0){
+		  print(paste0("Iteration: ", counter))
+		  }
+	}
+}
+```
+##### Visualization
+```{r visualization x2}
+# plot results
+# plot results
+par(mfrow=c(1,2))
+# kde Wand (1995) plot
+plot(keep.kernel.wand$log.n,keep.kernel.wand$log.mise,xlab="Log10 n",ylab="Log10 MISE",type="n", ylim=c(-7,-2))
+points(keep.kernel.wand$log.n,keep.kernel.wand$log.mise,pch=16,cex=.75)
+lmfit_kernel.wand <- lm(log.mise~log.n,data=keep.kernel.wand)
+abline(lmfit_kernel.wand,col="red")
+title("KernSmooth MISE")
+
+# logspline de
+plot(keep.logspline$log.n,keep.logspline$log.mise,xlab="Log10 n",ylab="Log10 MISE",type="n", ylim=c(-7,-2))
+points(keep.logspline$log.n,keep.logspline$log.mise,pch=16,cex=.75)
+lmfit_logspline <- lm(log.mise~log.n,data=keep.logspline)
+abline(lmfit_logspline,col="red")
+title("Logspline DE MISE")
+
+# look at kernel coefficient of interest
+print(summary(lmfit_kernel.wand)$coefficients)
+print(confint(lmfit_kernel.wand))
+# look at coefficient of interest
+print(summary(lmfit_logspline)$coefficients)
+print(confint(lmfit_logspline))
+```
+
+```{r visualization combined chi2}
+# plot results
+par(mfrow=c(1,1)) # Assumes 20 different sample sizes
+# kernel
+plot(keep.kernel$log.n,keep.kernel$log.mise,xlab="Log10 n",ylab="Log10 MISE",type="n")
+points(keep.kernel$log.n,keep.kernel$log.mise,pch=16,cex=.75, col='blue')
+lmfit <- lm(log.mise~log.n,data=keep.kernel)
+abline(lmfit,col="red")
+# logspline
+points(keep.logspline$log.n,keep.logspline$log.mise,pch=16,cex=.75, col='green')
+lmfit <- lm(log.mise~log.n,data=keep.logspline)
+abline(lmfit,col="red")
+title("Density estimation asymptotic MISE")
+# legend
+
+# mean plots
+kernel_mean_mise = aggregate(keep.kernel, by=list(keep.kernel$log.n), mean)
+logspline_mean_mise = aggregate(keep.logspline, by=list(keep.logspline$log.n), mean)
+
+plot(kernel_mean_mise$log.n,kernel_mean_mise$log.mise,xlab="Log10 n",ylab="Log10 MISE",type="n")
+points(kernel_mean_mise$log.n,kernel_mean_mise$log.mise,pch=16,cex=.75, col='blue')
+points(logspline_mean_mise$log.n,logspline_mean_mise$log.mise,pch=16,cex=.75, col='green')
+title("Density estimation asymptotic MISE")
+```
+
+
+## Questions
+- Why are convergance rates different (normal vs. chi2)? Maybe dependend on Kernel?
+  - Answer: -4/5 is the minimum (optimal) MISE convergance, which means the convergence can be slower if the density gets harder to estimate!
+
+## Conclusions
+- Is logspline log mise asymptotic behaviour linear?
+- Logspline log mise goes faster to zero than kernel density estimation!
+
+
+
+```{r plotfits}
+#par(mfrow=c(4,5),mar=c(1,1,1,1)) # Assumes 20 different sample sizes
+#for (log.n.i in unique(keep$log.n))
+#{
+#	junk <- keep.fits[keep$log.n==log.n.i,]
+#	plot(fit$x,f(fit$x),type="n",ylim=range(junk),main=paste("n=",10^log.n.i),
+#	xlab="n",ylab="n",axes=F)
+#	for (i in 1:dim(junk)[1])
+#		lines(fit$x,junk[i,])
+#	lines(fit$x,f(fit$x),col="red")
+#	
+#}
+```
+
+```{}
+
+```
+
+```{}
+
+```
+
+```{}
+
+```
+
+
+
+
+
+
+
